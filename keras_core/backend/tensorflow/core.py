@@ -10,6 +10,7 @@ from keras_core.backend.common import standardize_dtype
 from keras_core.backend.common.keras_tensor import KerasTensor
 from keras_core.backend.common.name_scope import name_scope as base_name_scope
 from keras_core.backend.common.stateless_scope import StatelessScope
+from keras_core.backend.tensorflow import distribution_lib
 from keras_core.utils.naming import auto_name
 
 SUPPORTS_SPARSE_TENSORS = True
@@ -27,12 +28,18 @@ class Variable(
         return self.value.handle
 
     def _initialize(self, value):
-        self._value = tf.Variable(
-            value, dtype=self._dtype, trainable=self.trainable, name=self.name
-        )
+        distribution = global_state.get_global_attribute("distribution")
+        if distribution:
+            self._layout = distribution_lib.to_dtensor_layout(
+                distribution.get_variable_layout(self))
+        else:
+            self._layout = None        
+        self._direct_assign(value)
 
     def _direct_assign(self, value):
-        self._value.assign(tf.cast(value, self._value.dtype))
+        if self._layout:
+            value = distribution_lib.distribute_value(value, self._layout)
+        self._value = value
 
     def _convert_to_tensor(self, value, dtype=None):
         return convert_to_tensor(value, dtype=dtype)
